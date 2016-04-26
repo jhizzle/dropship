@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	//    "io"
+	"github.com/klauspost/reedsolomon"
 	"math/rand"
-    "github.com/klauspost/reedsolomon"
 	"net"
 )
 
@@ -15,8 +15,8 @@ type Session struct {
 	M           int
 	PktSize     int
 	Destination *net.UDPAddr
-    Connection  *net.UDPConn
-    Encoder     reedsolomon.Encoder
+	Connection  *net.UDPConn
+	Encoder     reedsolomon.Encoder
 }
 
 func (s *Session) String() string {
@@ -31,59 +31,56 @@ func (s *Session) String() string {
 }
 
 func (s *Session) Send(data []byte) (int, error) {
-    size := len(data)
-    burst_size := (s.K+s.M) * s.PktSize
-    if (size > burst_size) {
-        size = burst_size
-    }
+	size := len(data)
+	burst_size := (s.K + s.M) * s.PktSize
+	if size > burst_size {
+		size = burst_size
+	}
 
-    // It's easier to just allocate a full buffer...
-    var buf []byte
-    if size < burst_size {
-        buf = make([]byte, burst_size)
-        copy(buf, data)
-    } else {
-        buf = data[:size]
-    }
+	// It's easier to just allocate a full buffer...
+	var buf []byte
+	if size < burst_size {
+		buf = make([]byte, burst_size)
+		copy(buf, data)
+	} else {
+		buf = data[:size]
+	}
 
+	parts := make([][]byte, s.K+s.M)
+	for i := 0; i < s.K; i++ {
+		parts[i] = buf[i*s.PktSize : (i+1)*s.PktSize]
+	}
 
-    parts := make([][]byte, s.K + s.M)
-    for i := 0; i < s.K; i++ {
-        parts[i] = buf[i * s.PktSize:(i+1)*s.PktSize]
-    }
+	for i := 0; i < s.M; i++ {
+		parts[s.K+i] = make([]byte, s.PktSize)
+	}
 
-    for i := 0; i < s.M; i++ {
-        parts[s.K+ i] = make([]byte, s.PktSize)
-    }
+	err := s.Encoder.Encode(parts)
+	if err != nil {
+		return 0, err
+	}
 
-    err := s.Encoder.Encode(parts)
-    if err != nil {
-        return 0, err
-    }
+	str := fmt.Sprintf("%#x,%d,%d,%d,", s.Id, s.K, s.M, s.PktSize)
+	var header []byte
+	header = append(header, []byte(str)...)
 
+	for _, d := range parts {
+		seq := fmt.Sprintf("%#016x.", s.Sequence)
+		tmp := append(header, seq...)
+		tmp = append(tmp, d...)
+		n, err := s.Connection.Write(tmp)
+		if n != len(tmp) {
+			fmt.Printf("Couldn't send whole packet: %d of %d\n", n, s.PktSize+len(str))
+			return 0, err
+		}
+		if err != nil {
+			fmt.Printf("Couldn't write packet because: %s\n", err)
+			return 0, err
+		}
+		s.Sequence = s.Sequence + 1
+	}
 
-    str := fmt.Sprintf("%#x,%d,%d,%d,", s.Id, s.K, s.M, s.PktSize)
-    var header []byte
-    header = append(header, []byte(str)...)
-
-
-    for _, d := range parts {
-        seq := fmt.Sprintf("%#016x.", s.Sequence)
-        tmp := append(header, seq...)
-        tmp = append(tmp, d...)
-        n, err :=s.Connection.Write(tmp)
-        if n != len(tmp) {
-            fmt.Printf("Couldn't send whole packet: %d of %d\n", n, s.PktSize + len(str))
-            return 0, err
-        }
-        if err != nil {
-            fmt.Printf("Couldn't write packet because: %s\n", err)
-            return 0, err
-        }
-        s.Sequence = s.Sequence + 1
-    }
-
-    return size, nil
+	return size, nil
 }
 
 func NewSession(k, m, size int, dest string) (*Session, error) {
@@ -92,15 +89,15 @@ func NewSession(k, m, size int, dest string) (*Session, error) {
 		return nil, err
 	}
 
-    encoder,err := reedsolomon.New(k, m)
-    if err != nil {
-        return nil, err
-    }
+	encoder, err := reedsolomon.New(k, m)
+	if err != nil {
+		return nil, err
+	}
 
-    conn, err := net.DialUDP("udp", nil, addr)
-    if err != nil {
-        return nil, err
-    }
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Session{rand.Int(), 0, k, m, size, addr, conn, encoder}, nil
 }
@@ -123,12 +120,10 @@ func main() {
 		return
 	}
 
-    msg := "Hello world! We're going to send a small message to test this out"
+	msg := "Hello world! We're going to send a small message to test this out"
 
-    n, err:= s.Send([]byte(msg))
-    fmt.Printf("Sent %d bytes of %d, err: %v\n", n, len(msg), err)
-
-
+	n, err := s.Send([]byte(msg))
+	fmt.Printf("Sent %d bytes of %d, err: %v\n", n, len(msg), err)
 
 	fmt.Println(s)
 }
