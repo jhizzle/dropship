@@ -162,20 +162,20 @@ func NewSession(k, m, size int, dest string) (*Session, error) {
 //func SendData(data []byte, destination string) {
 //}
 
-func main() {
-	fmt.Printf("Hello\n")
-
-	s, err := NewSession(20, 5, 1200, "localhost:1712")
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Header: % x", s.PktHeader)
-	msg := "Hello world! We're going to send a small message to test this out"
-
-	n, err := s.Send([]byte(msg))
-	fmt.Printf("Sent %d bytes of %d, err: %v\n", n, len(msg), err)
-
-	fmt.Println(s)
-}
+//func main() {
+//	fmt.Printf("Hello\n")
+//
+//	s, err := NewSession(20, 5, 1200, "localhost:1712")
+//	if err != nil {
+//		fmt.Printf("Error: %v\n", err)
+//		return
+//	}
+//
+//	fmt.Printf("Header: % x", s.PktHeader)
+//	msg := "Hello world! We're going to send a small message to test this out"
+//
+//	n, err := s.Send([]byte(msg))
+//	fmt.Printf("Sent %d bytes of %d, err: %v\n", n, len(msg), err)
+//
+//	fmt.Println(s)
+//}
