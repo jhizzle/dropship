@@ -3,8 +3,9 @@ package main
 import (
 	"fmt"
 	//    "io"
-	//"bytes"
+	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	//"errors"
 	"github.com/klauspost/reedsolomon"
 	"math/rand"
@@ -162,20 +163,74 @@ func NewSession(k, m, size int, dest string) (*Session, error) {
 //func SendData(data []byte, destination string) {
 //}
 
-//func main() {
-//	fmt.Printf("Hello\n")
-//
-//	s, err := NewSession(20, 5, 1200, "localhost:1712")
-//	if err != nil {
-//		fmt.Printf("Error: %v\n", err)
-//		return
-//	}
-//
-//	fmt.Printf("Header: % x", s.PktHeader)
-//	msg := "Hello world! We're going to send a small message to test this out"
-//
-//	n, err := s.Send([]byte(msg))
-//	fmt.Printf("Sent %d bytes of %d, err: %v\n", n, len(msg), err)
-//
-//	fmt.Println(s)
-//}
+type PacketHeader struct {
+	ChanId  uint64
+	GlblSeq uint32
+	MsgSeq  uint8
+	K       uint8
+	M       uint8
+	PktSize uint32
+	MsgSize uint32
+	Hash    uint32
+}
+
+func (ph *PacketHeader) String() string {
+	return fmt.Sprintf(
+		"%#016x, %d, %d, %d, %d, %d, %d, %#018x",
+		ph.ChanId,
+		ph.GlblSeq,
+		ph.MsgSeq,
+		ph.K,
+		ph.M,
+		ph.PktSize,
+		ph.MsgSize,
+		ph.Hash,
+	)
+}
+
+func main() {
+	fmt.Printf("Hello\n")
+
+	buf := new(bytes.Buffer)
+
+	enc := gob.NewEncoder(buf)
+	dec := gob.NewDecoder(buf)
+
+	p := PacketHeader{uint64(rand.Int()), 22002, 27, 20, 5, 1200, 5000, uint32(rand.Int())}
+
+	fmt.Println(p)
+	err := enc.Encode(p)
+	if err != nil {
+		fmt.Printf("Encode Error: %s\n", err)
+	}
+
+	var q PacketHeader
+	err = dec.Decode(&q)
+	if err != nil {
+		fmt.Printf("Decode error: %s\n", err)
+	}
+
+	fmt.Println(q)
+
+	//	//p.Data = append(p.Data, []byte("This is my message data!")...)
+	//
+	//	err := binary.Write(buf, binary.BigEndian, p)
+	//	if err != nil {
+	//		fmt.Printf("Error: %s\n", err)
+	//	}
+	//	fmt.Printf("Wrote %d bytes, % x\n", buf.Len(), buf.Bytes())
+
+	//	s, err := NewSession(20, 5, 1200, "localhost:1712")
+	//	if err != nil {
+	//		fmt.Printf("Error: %v\n", err)
+	//		return
+	//	}
+	//
+	//	fmt.Printf("Header: % x", s.PktHeader)
+	//	msg := "Hello world! We're going to send a small message to test this out"
+	//
+	//	n, err := s.Send([]byte(msg))
+	//	fmt.Printf("Sent %d bytes of %d, err: %v\n", n, len(msg), err)
+	//
+	//	fmt.Println(s)
+}

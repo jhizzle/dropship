@@ -1,0 +1,33 @@
+dropship:
+  message: a set of K + M packets
+  each_packet:
+    ChanId: message channel
+    GlblSeq: the Sequence of this packet
+    MsgSeq: the Sequence number of this packet for this message
+    K: the number of data pieces
+    M: the number of parity pieces
+    PktSize: the size of the data in the packet (really, it should be the remaining data)
+    MsgSize: the actual amount of data that is valid in this message
+
+
+receiver
+{
+receive packet
+decode header
+check hash
+channel exists? if not, create a new channel
+send packet to channel
+}
+
+channel
+{
+  accepts packets
+  times out after a while if not received a packet
+  waits for enough packets to reassemble a message
+  outputs data over channel when the message can be decoded
+  times out waiting for data if not enough packets have been received to decode message.
+    writes null data to allow rest of channel to continue and sends a note to the error channel
+}
+
+reassemble
+{
