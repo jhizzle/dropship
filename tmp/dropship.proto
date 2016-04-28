@@ -2,13 +2,13 @@ syntax="proto3";
 package main;
 
 message Packet {
-    uint32 chan = 1;
-    uint32 chan_seq = 2;
-    uint32 msg_seq = 3;
-    uint32 k = 4;
-    uint32 m = 5;
-    uint32 size = 6;
-    bytes data = 7;
+    uint32 chan = 7;
+    uint32 msg = 1;
+    uint32 seq = 2;
+    uint32 k = 3;
+    uint32 m = 4;
+    uint32 size = 5;
+    bytes data = 6;
 }
 
     

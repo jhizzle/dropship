@@ -3,12 +3,119 @@ package main
 import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
+	"github.com/klauspost/reedsolomon"
 	"hash/crc32"
 	"log"
 	"math/rand"
+	"net"
 )
 
 var _ = crc32.ChecksumIEEE
+
+const (
+	K       = 20
+	M       = 5
+	PktSize = 1200
+	MsgSize = K * PktSize
+)
+
+type Sender struct {
+	Dest    *net.UDPAddr
+	Conn    *net.UDPConn
+	Encoder reedsolomon.Encoder
+	Buffer  [][]byte
+	Msg     uint32
+}
+
+func NewSender(dest string) (*Sender, error) {
+	var err error
+	s := &Sender{}
+	s.Dest, err = net.ResolveUDPAddr("udp", dest)
+	if err != nil {
+		return nil, err
+	}
+
+	s.Conn, err = net.DialUDP("udp", nil, s.Dest)
+	if err != nil {
+		return nil, err
+	}
+
+	s.Encoder, err = reedsolomon.New(K, M)
+	if err != nil {
+		return nil, err
+	}
+
+	s.Buffer = make([][]byte, K+M)
+	for i := range s.Buffer {
+		s.Buffer[i] = make([]byte, PktSize)
+	}
+
+	return s, nil
+}
+
+func Min(a ...int) int {
+	min := int(^uint(0) >> 1) // largest int
+	for _, i := range a {
+		if i < min {
+			min = i
+		}
+	}
+	return min
+}
+
+func (s *Sender) Send(data []byte) (int, error) {
+	dataLen := len(data)
+
+	offset := 0
+	size := 0
+	for i := 0; i < K; i++ {
+		amount := Min(MsgSize-size, PktSize, dataLen)
+		if amount < PktSize {
+			s.Buffer[i] = make([]byte, PktSize)
+			if amount > 0 {
+				copy(s.Buffer[i], data[offset:offset+amount])
+			}
+		} else {
+			s.Buffer[i] = data[offset : offset+PktSize]
+		}
+		offset += amount
+		size += amount
+	}
+
+	err := s.Encoder.Encode(s.Buffer)
+	if err != nil {
+		return 0, err
+	}
+
+	for i := range s.Buffer {
+		p := &Packet{
+			0,
+			s.Msg,
+			uint32(i),
+			K,
+			M,
+			uint32(size),
+			s.Buffer[i],
+		}
+
+		wire_data, err := proto.Marshal(p)
+		if err != nil {
+			return 0, err
+		}
+
+		hash := crc32.ChecksumIEEE(wire_data)
+		wire_data = append(wire_data, []byte(fmt.Sprintf("%08x", hash))...)
+
+		sent, err := s.Conn.Write(wire_data)
+		if err != nil {
+			return 0, err
+		}
+		if sent != len(wire_data) {
+			panic("Couldn't send whole UDP Packet")
+		}
+	}
+	return size, nil
+}
 
 func main() {
 
