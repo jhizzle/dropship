@@ -31,3 +31,21 @@ channel
 
 reassemble
 {
+}
+
+
+API:
+  NewSession(k, m, datasize, dest)
+
+
+There is an idea of a channel or session. all data sent on a specific channel
+will end up on the same channel at the end. This means that you could
+technically interleave packets from different channels.
+
+Data is sent as a "message" where a message is made up of packets.  Each packet
+contains information about the message. For example, how many data packets and
+parity packets are associated with the message. Each packet also indicates how
+to reassemble them into a message. Also, each packet contains information on
+which channel the message belongs to.
+
+
