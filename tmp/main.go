@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/klauspost/reedsolomon"
@@ -10,14 +11,21 @@ import (
 	"net"
 )
 
-var _ = crc32.ChecksumIEEE
-
 const (
 	K       = 20
 	M       = 5
 	PktSize = 1200
 	MsgSize = K * PktSize
 )
+
+var (
+	isListener bool
+)
+
+func init() {
+	flag.BoolVar(&isListener, "listen", false, "Use this flag to listen for a connection instead of sending data")
+	flag.Parse()
+}
 
 type Sender struct {
 	Dest    *net.UDPAddr
@@ -118,6 +126,11 @@ func (s *Sender) Send(data []byte) (int, error) {
 }
 
 func main() {
+
+	if isListener {
+		fmt.Printf("I'm a listener!\n")
+		return
+	}
 
 	p := &Packet{
 		uint32(rand.Int()),
