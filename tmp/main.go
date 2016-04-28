@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	K       = 20
-	M       = 5
-	PktSize = 1200
-	MsgSize = K * PktSize
+	K             = 20
+	M             = 5
+	PktSize       = 1200
+	MsgSize       = K * PktSize
+	MaxPacketSize = 1500
 )
 
 var (
@@ -29,6 +30,14 @@ func init() {
 
 type Sender struct {
 	Dest    *net.UDPAddr
+	Conn    *net.UDPConn
+	Encoder reedsolomon.Encoder
+	Buffer  [][]byte
+	Msg     uint32
+}
+
+type Receiver struct {
+	LAddr   *net.UDPAddr
 	Conn    *net.UDPConn
 	Encoder reedsolomon.Encoder
 	Buffer  [][]byte
@@ -125,10 +134,72 @@ func (s *Sender) Send(data []byte) (int, error) {
 	return size, nil
 }
 
+func NewReceiver(bindAddr string) (*Receiver, error) {
+	var err error
+	r := &Receiver{}
+	r.LAddr, err = net.ResolveUDPAddr("udp", bindAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	r.Conn, err = net.ListenUDP("udp", r.LAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	r.Buffer = make([][]byte, K+M)
+
+	r.Encoder, err = reedsolomon.New(K, M)
+	if err != nil {
+		return nil, err
+	}
+
+	return r, nil
+}
+
+func (r *Receiver) Recv(data []byte) (int, error) {
+	buf := make([]byte, MaxPacketSize)
+	n, raddr, err := r.Conn.ReadFrom(buf)
+	fmt.Printf("Read: %d bytes from %v\n", n, raddr)
+	if err != nil {
+		return 0, err
+	}
+
+	p := &Packet{}
+
+	err = proto.Unmarshal(buf[:len(buf)-8], p)
+	if err != nil {
+		return 0, err
+	}
+
+	fmt.Printf("Recieved this! %v\n", p)
+
+	return len(buf), nil
+}
+
+//func Listen(laddr string) error {
+//
+//	for i := 0; i < K+M; i++ {
+//		n, raddr, err := .ReadFrom(buf)
+//		if err != nil {
+//			return err
+//		}
+//		fmt.Printf("Read: %d bytes from %v\n", n, raddr)
+//	}
+//
+//}
+
 func main() {
 
 	if isListener {
 		fmt.Printf("I'm a listener!\n")
+		r, err := NewReceiver(":1712")
+		if err != nil {
+			log.Fatal("Creating new receiver failed")
+		}
+		buf := make([]byte, 1500)
+		n, err := r.Recv(buf)
+		fmt.Printf("Received: %d bytes.\n", n)
 		return
 	}
 
