@@ -34,3 +34,15 @@ a connection is made taking an io.Reader and a destination
 func NewSender(dest string, data io.Reader) (*Sender, error)
 
 func(s *Sender) Send(data []byte) (sent int)
+
+## Receiver
+
+triage:
+  receive packet
+  hash ok? NO? Set flag and send to message handler
+  does this message exist? NO? create message
+  send packet to message handler
+
+message handler:
+  place data into message
+  if we have enough data, decode it and send it to data handler
