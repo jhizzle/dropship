@@ -46,3 +46,5 @@ triage:
 message handler:
   place data into message
   if we have enough data, decode it and send it to data handler
+  keep it around for a little bit to handle any extra packets that come in for this message
+

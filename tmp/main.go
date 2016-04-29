@@ -1,15 +1,19 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/klauspost/reedsolomon"
 	"hash/crc32"
+	"io"
 	"log"
 	"math/rand"
 	"net"
 )
+
+var _ = io.MultiWriter
 
 const (
 	K             = 20
@@ -17,6 +21,10 @@ const (
 	PktSize       = 1200
 	MsgSize       = K * PktSize
 	MaxPacketSize = 1500
+)
+
+var (
+	ERR_BAD_HASH = errors.New("Bad hash")
 )
 
 var (
@@ -120,8 +128,7 @@ func (s *Sender) Send(data []byte) (int, error) {
 			return 0, err
 		}
 
-		hash := crc32.ChecksumIEEE(wire_data)
-		wire_data = append(wire_data, []byte(fmt.Sprintf("%08x", hash))...)
+		wire_data = AddHash(wire_data)
 
 		sent, err := s.Conn.Write(wire_data)
 		if err != nil {
@@ -157,6 +164,22 @@ func NewReceiver(bindAddr string) (*Receiver, error) {
 	return r, nil
 }
 
+func AddHash(data []byte) []byte {
+	hash := crc32.ChecksumIEEE(data)
+	return append(data, []byte(fmt.Sprintf("%08x", hash))...)
+}
+
+func StripHash(data []byte) ([]byte, error) {
+	data, hashStr := data[:len(data)-8], data[len(data)-8:]
+	hash := crc32.ChecksumIEEE(data)
+	result := fmt.Sprintf("%08x", hash)
+	if result != string(hashStr) {
+		return data, ERR_BAD_HASH
+	}
+
+	return data, nil
+}
+
 func (r *Receiver) Recv(data []byte) (int, error) {
 	buf := make([]byte, MaxPacketSize)
 	n, raddr, err := r.Conn.ReadFrom(buf)
@@ -165,9 +188,14 @@ func (r *Receiver) Recv(data []byte) (int, error) {
 		return 0, err
 	}
 
+	buf, err = StripHash(buf)
+	if err != nil {
+		return 0, err
+	}
+
 	p := &Packet{}
 
-	err = proto.Unmarshal(buf[:len(buf)-8], p)
+	err = proto.Unmarshal(buf, p)
 	if err != nil {
 		return 0, err
 	}
@@ -188,6 +216,15 @@ func (r *Receiver) Recv(data []byte) (int, error) {
 //	}
 //
 //}
+
+func (r *Receiver) ReceiveMessages(w io.Writer) error {
+	buf := make([]byte, 1500)
+
+	for {
+		n, err := r.Recv(buf)
+	}
+
+}
 
 func main() {
 
@@ -237,8 +274,7 @@ func main() {
 		log.Fatal("marshalling error: ", err)
 	}
 
-	hash := crc32.ChecksumIEEE(data)
-	data = append(data, []byte(fmt.Sprintf("%08x", hash))...)
+	data = AddHash(data)
 
 	fmt.Printf("Marshalled data is %d bytes\n", len(data))
 
