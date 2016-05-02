@@ -12,11 +12,13 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"os"
 	"time"
 )
 
 var _ = io.MultiWriter
 var _ = rand.Int
+var _ = os.Open
 
 const (
 	K             = 20
@@ -76,6 +78,7 @@ func (s *Shipper) Send(data []byte) (int, error) {
 		p := &Packet{
 			s.count,
 			uint32(i),
+			0,
 			K,
 			M,
 			uint32(consumed),
@@ -175,34 +178,66 @@ func init() {
 	flag.Parse()
 }
 
-type Receiver struct {
-	conn *net.UDPConn
-	enc  reedsolomon.Encoder
+type Hub struct {
+	conn      *net.UDPConn
+	enc       reedsolomon.Encoder
+	receivers map[int]*Receiver
+	routes    map[int]*bytes.Buffer
+	eChans    map[int]chan error
 }
 
-func NewReceiver(bindAddr string) (*Receiver, error) {
+func NewHub(bindAddr string) (*Hub, error) {
 	var err error
 
-	r := &Receiver{}
+	h := &Hub{}
 	addr, err := net.ResolveUDPAddr("udp", bindAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	r.conn, err = net.ListenUDP("udp", addr)
+	h.conn, err = net.ListenUDP("udp", addr)
 	if err != nil {
 		return nil, err
 	}
 
-	r.enc, err = reedsolomon.New(K, M)
+	h.enc, err = reedsolomon.New(K, M)
 	if err != nil {
 		return nil, err
 	}
 
-	return r, nil
+	h.routes = make(map[int]*bytes.Buffer)
+	h.eChans = make(map[int]chan error)
+	h.receivers = make(map[int]*Receiver)
+	return h, nil
 }
 
-func (r *Receiver) Shutdown() {
+func (h *Hub) RegisterReceiver(route int, w io.Writer) chan error {
+	buf := new(bytes.Buffer)
+	h.routes[route] = buf
+	go buf.WriteTo(w)
+
+	h.eChans[route] = make(chan error)
+
+	return h.eChans[route]
+}
+
+type Receiver struct {
+	Route int
+	Data  bytes.Buffer
+	Err   chan error
+}
+
+func (h *Hub) NewReceiver(route int) *Receiver {
+	r := &Receiver{route, bytes.Buffer{}, make(chan error)}
+	h.receivers[route] = r
+	return r
+}
+
+func (r *Receiver) Read(p []byte) (int, error) {
+	return r.Data.Read(p)
+}
+
+func (r *Hub) Shutdown() {
 	r.conn.Close()
 
 }
@@ -227,7 +262,29 @@ func StripHash(data []byte) ([]byte, error) {
 	return data, nil
 }
 
-func (r *Receiver) RecvMessage(c chan *Packet) ([]byte, error) {
+func (h *Hub) Recv(quit chan bool) {
+
+	for {
+		select {
+		case <-quit:
+			fmt.Println("Quiting the receiver\n")
+			break
+
+		default:
+			p, err := h.RecvPacket()
+			// TODO: handle errors and send them
+			if err != nil {
+				log.Fatal("TODO: handle errors in Hub.Recv\n")
+			}
+			// always succeeds because bytes.Buffer panics if there's no memory
+			fmt.Printf("Writing %d bytes\n", len(p.Data))
+			//h.routes[int(p.Route)].Write(p.Data)
+			h.receivers[int(p.Route)].Data.Write(p.Data)
+		}
+	}
+}
+
+func (r *Hub) RecvMessage(c chan *Packet) ([]byte, error) {
 	shards := make([][]byte, K+M)
 	var size int
 
@@ -254,11 +311,18 @@ func (r *Receiver) RecvMessage(c chan *Packet) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (r *Receiver) RecvPacket() (*Packet, error) {
+func (r *Hub) RecvPacket() (*Packet, error) {
 	buf := make([]byte, MaxPacketSize)
-	n, _ := r.conn.Read(buf)
 
-	buf, err := StripHash(buf[:n])
+	deadline := time.Now()
+	deadline = deadline.Add(time.Second)
+	r.conn.SetReadDeadline(deadline)
+	n, err := r.conn.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+
+	buf, err = StripHash(buf[:n])
 	if err != nil {
 		return nil, err
 	}
@@ -275,41 +339,17 @@ func (r *Receiver) RecvPacket() (*Packet, error) {
 
 func main() {
 
-	//if isListener {
-	//	fmt.Printf("I'm a listener!\n")
-	//	r, err := NewReceiver(":1712")
-	//	if err != nil {
-	//		log.Fatal("Creating new receiver failed")
-	//	}
-	//	buf := make([]byte, 1500)
-	//	n, err := r.RecvPacket(buf)
-	//	fmt.Printf("Received: %d bytes.\n", n)
-	//	return
-	//}
-
-	status := make(chan bool)
-
-	pchan := make(chan *Packet)
-	r, err := NewReceiver(":1712")
+	h, err := NewHub(":1712")
 	if err != nil {
 		log.Fatalf("Creating new receiver failed: %s\n", err)
 	}
+	defer h.Shutdown()
 
-	defer r.Shutdown()
+	r := h.NewReceiver(0)
+	fmt.Println("r", r)
 
-	go func() {
-		for {
-			p, _ := r.RecvPacket()
-			pchan <- p
-		}
-	}()
-
-	go func() {
-		msg, _ := r.RecvMessage(pchan)
-		fmt.Printf("Received message: '%s'\n", string(msg))
-		close(status)
-
-	}()
+	quit := make(chan bool)
+	go h.Recv(quit)
 
 	time.Sleep(time.Second)
 
@@ -321,7 +361,16 @@ func main() {
 
 	n, err := shipper.Send([]byte("Hello world!"))
 	fmt.Printf("Sent %d bytes, error: %v\n", n, err)
-	//time.Sleep(time.Second)
 
-	<-status
+	go func() {
+		buf := make([]byte, 1000)
+
+		n, err := r.Read(buf)
+		fmt.Printf("Read %d bytes: '%s', error: %v\n", n, buf, err)
+	}()
+
+	time.Sleep(time.Second)
+
+	fmt.Println("Trying to quit\n")
+	quit <- true
 }
