@@ -28,7 +28,8 @@ const (
 )
 
 var (
-	ErrCorrupt = errors.New("hash failed")
+	ErrCorrupt    = errors.New("hash failed")
+	ArgumentError = errors.New("Argument out of bounds")
 )
 
 func main() {
@@ -319,4 +320,68 @@ func DecodeMessage(msg [][]byte) ([]byte, error) {
 	enc.Join(buf, msgData, size)
 
 	return buf.Bytes()[:size], nil
+}
+
+type Message struct {
+	Id        int
+	K         int
+	M         int
+	Size      int
+	Shards    [][]byte
+	ShardSize int
+	enc       reedsolomon.Encoder
+}
+
+func DataToMessage(data []byte, id, k, m, shardSize int) (*Message, error) {
+	if id <= 0 || k <= 0 || m <= 0 || shardSize <= 0 {
+		return nil, ArgumentError
+	}
+
+	msg := &Message{
+		id,
+		k,
+		m,
+		Min(len(data), k*shardSize),
+		nil,
+		shardSize,
+		nil,
+	}
+
+	b := make([]byte, k*shardSize)
+	copy(b, data)
+
+	var err error
+	msg.enc, err = reedsolomon.New(k, m)
+	if err != nil {
+		return nil, err
+	}
+
+	msg.Shards, err = msg.enc.Split(b)
+	if err != nil {
+		return nil, err
+	}
+
+	err = msg.enc.Encode(msg.Shards)
+	if err != nil {
+		return nil, err
+	}
+
+	return msg, nil
+}
+
+func DataFromMessage(m *Message) ([]byte, error) {
+	var err error
+
+	err = m.enc.Reconstruct(m.Shards)
+	if err != nil {
+		return nil, err
+	}
+
+	buf := new(bytes.Buffer)
+	err = m.enc.Join(buf, m.Shards, m.Size)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }

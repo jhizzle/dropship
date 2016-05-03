@@ -343,3 +343,76 @@ func TestDecodeMessage(t *testing.T) {
 	}
 
 }
+
+func TestToMessageAndBack(t *testing.T) {
+	testVectors := []struct {
+		id        int
+		k         int
+		m         int
+		shardSize int
+		msgSize   int
+		encErr    error
+		dropped   int
+		decErr    error
+	}{
+		{0, 0, 0, 0, 0, ArgumentError, 0, nil},
+		{1, 5, 5, 10, 49, nil, 0, nil},
+		{2, 5, 5, 10, 50, nil, 0, nil},
+		{3, 5, 5, 10, 51, nil, 0, nil},
+		{4, 1, 1, 1, 1, nil, 0, nil},
+		{5, 200, 55, 1000, 50000, nil, 0, nil},
+		{6, 200, 55, 1000, 500000, nil, 0, nil},
+		{7, 20, 5, 10, 50000, nil, 4, nil},
+		{8, 20, 5, 10, 50000, nil, 5, nil},
+		{9, 20, 5, 10, 50000, nil, 6, reedsolomon.ErrTooFewShards},
+	}
+
+	for i, test := range testVectors {
+		buf := make([]byte, test.msgSize)
+		rand.Read(buf)
+
+		m, err := DataToMessage(buf, test.id, test.k, test.m, test.shardSize)
+		if err != test.encErr {
+			t.Errorf("Test: %3d, DataToMessage expected error: %v, actual: %v\n", i, test.encErr, err)
+			continue
+		}
+
+		if m == nil {
+			continue
+		}
+
+		testSize := Min(test.msgSize, test.k*test.shardSize)
+		if m.Size != testSize {
+			t.Errorf("Test: %3d, Message size is wrong. Expected: %d, actual: %d\n", i, testSize, m.Size)
+		}
+
+		// drop packets
+		for i := 0; i < Min(test.dropped, test.k+test.m); i++ {
+
+			for {
+				shard := rand.Intn(len(m.Shards))
+				if m.Shards[shard] == nil {
+					continue
+				}
+				m.Shards[shard] = nil
+				break
+			}
+		}
+
+		result, err := DataFromMessage(m)
+		if err != test.decErr {
+			t.Errorf("Test: %3d, DataFromMessage Expected error: %v, actual: %v\n", i, test.encErr, err)
+			continue
+		}
+
+		if err != nil {
+			continue
+		}
+
+		if !bytes.Equal(buf[:m.Size], result) {
+			t.Errorf("Test: %3d, DataFromMessage result data not equal to input data. Expected length: %d, actual: %d\n", i, m.Size, len(result))
+		}
+
+	}
+
+}
