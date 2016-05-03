@@ -1,0 +1,12 @@
+syntax="proto3";
+package main;
+
+message Packet {
+    uint32 id = 1;
+    uint32 seq = 2;
+    uint32 k = 3;
+    uint32 m = 4;
+    uint32 size = 5;
+    bytes data = 6;
+}
+

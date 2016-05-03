@@ -1,0 +1,49 @@
+
+Listener:
+  description: |
+    A Listener is created by calling the Listen function. It currently only
+    accepts 'udp' as the network. The laddr is the address that the Listener
+    will listen to. It receives all data packets from the network connections
+    and sends them to the appropriate Receivers. It keeps track of all of the
+    Receivers that are currently in operation. If a Receiver is not currently
+    active, calls to Accept will return a new Receiver to listen to the
+    connection.
+  related:
+    - Listen(net, laddr string) (Listener, error)
+  methods:
+    - Accept() (Conn, error)
+    - Close() error
+    - Addr() Addr
+
+Sender:
+  related:
+    - Dial(network, address string) (Conn, error)
+  methods:
+    - Read(b []byte) (int, error)
+    - Write(b []byte) (int, error)
+    - Close() error
+    - LocalAddr() Addr
+    - RemoteAddr() Addr
+    - SetDeadline(t time.Time) error
+    - SetReadDeadline(t time.Time) error
+    - SetWriteDeadline(t time.Time) error
+
+Receiver:
+  Description: |
+    The Receiver is what actually accepts packets, reassembles them into the
+    appropriate data stream, and then allows the data stream to be read.
+  related:
+    - NewReceiver(addr string) (*Receiver, error)
+  methods:
+    - Read(b []byte) (int, error)
+    - Write(b []byte) (int, error)
+    - Close() error
+    - LocalAddr() Addr
+    - RemoteAddr() Addr
+    - SetDeadline(t time.Time) error
+    - SetReadDeadline(t time.Time) error
+    - SetWriteDeadline(t time.Time) error
+
+
+
+
