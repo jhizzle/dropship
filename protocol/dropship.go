@@ -385,3 +385,71 @@ func DataFromMessage(m *Message) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+func MessageToPackets(m *Message) ([]*Packet, error) {
+	if m == nil {
+		return nil, ArgumentError
+	}
+
+	packets := make([]*Packet, len(m.Shards))
+
+	for i, shard := range m.Shards {
+		p := &Packet{
+			uint32(m.Id),
+			uint32(i),
+			uint32(m.K),
+			uint32(m.M),
+			uint32(m.Size),
+			shard,
+		}
+		packets[i] = p
+	}
+
+	return packets, nil
+}
+
+func MessageFromPackets(packets []*Packet) (*Message, error) {
+	var err error
+
+	m := &Message{}
+
+	// make sure packets are in order
+	for i := range packets {
+		for packets[i] != nil && packets[i].Seq > uint32(i) {
+			seq := packets[i].Seq
+			packets[i], packets[seq] = packets[seq], packets[i]
+		}
+	}
+
+	// get message info
+	for _, p := range packets {
+		if p != nil {
+			m.Id = int(p.Id)
+			m.K = int(p.K)
+			m.M = int(p.M)
+			m.Size = int(p.Size)
+			m.ShardSize = len(p.Data)
+			m.enc, err = reedsolomon.New(m.K, m.M)
+			if err != nil {
+				return nil, err
+			}
+			break
+		}
+	}
+
+	// copy over data
+	m.Shards = make([][]byte, m.K+m.M)
+	for i, p := range packets {
+		if p != nil {
+			m.Shards[i] = p.Data
+		}
+	}
+
+	// reconstruct data if any is missing
+	err = m.enc.Reconstruct(m.Shards)
+	if err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
