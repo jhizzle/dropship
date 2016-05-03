@@ -220,7 +220,6 @@ func ValidHash(data []byte, hash string) bool {
 	calcHash := crc32.ChecksumIEEE(data)
 	result := fmt.Sprintf("%08x", calcHash)
 	if result != string(hash) {
-		fmt.Printf("Expected: %s, Actual: %s\n", hash, result)
 		return false
 	}
 
@@ -272,86 +271,52 @@ func (s *Sender) MakeMessage(data []byte) ([][]byte, int) {
 	return packets, n
 }
 
-// PacketToWire converts a Packet into the
-func PacketToWire(p *Packet) ([]byte, error) {
-	data, err := proto.Marshal(p)
+// DecodeMessage takes a slice of slice of bytes that form a message and
+// decodes the values to create the original bytes.
+func DecodeMessage(msg [][]byte) ([]byte, error) {
+
+	for i := range msg {
+		var valid bool
+		data, valid := ValidateStripHash(msg[i])
+		if !valid {
+			msg[i] = nil
+		} else {
+			msg[i] = data
+		}
+	}
+
+	var size int
+
+	packets := make([]*Packet, K+M)
+	for i := range msg {
+		var p Packet
+		if msg[i] != nil {
+			err := proto.Unmarshal(msg[i], &p)
+			if err == nil {
+				packets[p.Seq] = &p
+				size = int(p.Size)
+
+			}
+		}
+	}
+
+	msgData := make([][]byte, K+M)
+	for i := range packets {
+		if packets[i] != nil {
+			msgData[i] = packets[i].Data
+		}
+	}
+
+	enc, _ := reedsolomon.New(K, M)
+
+	err := enc.Reconstruct(msgData)
 	if err != nil {
 		return nil, err
 	}
 
-	data = AppendHash(data)
-	return data, nil
+	buf := new(bytes.Buffer)
+
+	enc.Join(buf, msgData, size)
+
+	return buf.Bytes()[:size], nil
 }
-
-func WireToPacket(data []byte) (*Packet, error) {
-	data, valid := ValidateStripHash(data)
-	if !valid {
-		return nil, ErrCorrupt
-	}
-
-	p := new(Packet)
-	err := proto.Unmarshal(data, p)
-	if err != nil {
-		return nil, err
-	}
-
-	return p, nil
-
-}
-
-//// DecodeMessage takes a slice of slice of bytes that form a message and
-//// decodes the values to create the original bytes.
-//func DecodeMessage(msg [][]byte) ([]byte, error) {
-//
-//	for i := range msg {
-//		var valid bool
-//		data, valid := ValidateStripHash(msg[i])
-//		if !valid {
-//			msg[i] = nil
-//		} else {
-//			msg[i] = data
-//		}
-//	}
-//
-//	packets := make([]*Packet, K+M)
-//	for i := range msg {
-//		var p Packet
-//		if msg[i] != nil {
-//			err := proto.Unmarshal(msg[i], &p)
-//			if err == nil {
-//				packets[i] = &p
-//
-//			}
-//		}
-//	}
-//
-//	msgData := make([][]byte, K+M)
-//	for i := range packets {
-//		msgData[i] = packets[i].Data
-//	}
-//
-//	enc, _ := reedsolomon.New(K, M)
-//
-//	ok, _ := enc.Verify(msgData)
-//	if !ok {
-//		t.Errorf("Could not verify encoded values\n")
-//	}
-//
-//	for i := 0; i < M; i++ {
-//		msgData[rand.Intn(M)] = nil
-//	}
-//
-//	err = enc.Reconstruct(msgData)
-//	if err != nil {
-//		t.Errorf("Failure to reconstruct data\n")
-//	}
-//
-//	buf := new(bytes.Buffer)
-//
-//	enc.Join(buf, msgData, int(packets[0].Size))
-//
-//	if !bytes.Equal(buf.Bytes(), din[:K*PktSize]) {
-//		t.Errorf("Sent data does not match received data.\n")
-//	}
-//
-//}

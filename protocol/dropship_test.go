@@ -9,7 +9,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
-	"reflect"
+	//"reflect"
 	"testing"
 	"time"
 )
@@ -59,31 +59,32 @@ func TestSenderWrite(t *testing.T) {
 		t.Errorf("Failed to listen on udp: %s\n", err)
 	}
 
-	msg := []byte("Hello DropShip!")
+	msg := make([]byte, 2^20)
+	rand.Read(msg)
 	n, err := s.Write(msg)
 	if n != len(msg) || err != nil {
 		t.Errorf("Write:: Expected: (%d, nil), Actual: (%d, %v)\n", len(msg), n, err)
 	}
 
-	pktData := make([]byte, PktSize)
-	copy(pktData, msg)
-
-	p := &Packet{
-		27,
-		2,
-		K,
-		M,
-		uint32(len(msg)),
-		pktData,
+	buf := make([]byte, 5000)
+	shards := make([][]byte, K+M)
+	for i := 0; i < K+M; i++ {
+		r.SetDeadline(time.Now().Add(time.Second))
+		n, err = r.Read(buf)
+		if err != nil {
+			t.Errorf("Read fail: %s\n", err)
+			break
+		}
+		shards[i] = append(shards[i], buf[:n]...)
 	}
 
-	expect, _ := proto.Marshal(p)
+	result, err := DecodeMessage(shards)
+	if err != nil {
+		t.Errorf("Failed to DecodeMessage: %s\n", err)
+	}
 
-	buf := make([]byte, MaxPacketSize)
-	r.SetDeadline(time.Now().Add(time.Second))
-	n, err = r.Read(buf[:len(expect)])
-	if n != len(expect) || err != nil {
-		t.Errorf("Expected: (%d, nil), Actual: (%d, %v)\n", len(expect), n, err)
+	if !bytes.Equal(msg, result) {
+		t.Errorf("Decoded message does not equal sent message\n")
 	}
 }
 
@@ -225,6 +226,19 @@ func TestMakeMessage(t *testing.T) {
 		packets[i] = &p
 	}
 
+	for i, p := range packets {
+		if p.Id != 0 {
+			t.Errorf("Packet %d doesn't have correct ID. Expected: %d, Actual: %d\n", i, 0, p.Id)
+		}
+		if p.Seq != uint32(i) {
+			t.Errorf("Packet %d doesn't have correct sequence. Expected: %d, Actual: %d\n", i, i, p.Seq)
+		}
+		if p.Size != uint32(n) {
+			t.Errorf("Packet %d doesn't have correct size. Expected: %d, Actual: %d\n", i, n, p.Size)
+		}
+
+	}
+
 	msgData := make([][]byte, K+M)
 	for i := range packets {
 		msgData[i] = packets[i].Data
@@ -256,36 +270,76 @@ func TestMakeMessage(t *testing.T) {
 
 }
 
-func TestPacketWirePacket(t *testing.T) {
-	p := &Packet{
-		uint32(rand.Int()),
-		uint32(rand.Int()),
-		uint32(rand.Int()),
-		uint32(rand.Int()),
-		uint32(rand.Int()),
-		make([]byte, rand.Intn(PktSize)),
-	}
-	rand.Read(p.Data)
+func TestDecodeMessage(t *testing.T) {
 
-	data, err := PacketToWire(p)
+	dinSize := 32000
+	din := make([]byte, dinSize)
+	rand.Read(din)
+
+	s, err := Dial("udp", "127.0.0.1:1712")
 	if err != nil {
-		t.Errorf("Could not convert Packet to wire data: %s\n", err)
+		t.Errorf("Dial Failed: %v\n", err)
 	}
 
-	result, err := WireToPacket(data)
+	msg, n := s.MakeMessage(din)
+	if n != K*PktSize {
+		t.Errorf("Didn't use maximum data. Expected: %d, Actual: %d\n", K*PktSize, n)
+	}
+
+	result, err := DecodeMessage(msg)
 	if err != nil {
-		t.Fatalf("Could not convert wire data to Packet: %s\n", err)
+		t.Errorf("Failed to decode message: %s\n", err)
 	}
 
-	if !reflect.DeepEqual(p, result) {
-		t.Errorf("Packets are not the same!\n")
+	if !bytes.Equal(din[:n], result) {
+		t.Errorf("Decoded message is not equal to original\n")
 	}
 
-	data[rand.Intn(len(data))] = data[rand.Intn(len(data))] ^ 0xff
+	// random drop
+	rand.Read(din)
+	msg, n = s.MakeMessage(din)
+	if n != K*PktSize {
+		t.Errorf("Didn't use maximum data. Expected: %d, Actual: %d\n", K*PktSize, n)
+	}
 
-	result, err = WireToPacket(data)
-	if err == nil {
-		t.Fatalf("Packet converted when should not have\n")
+	for i := 0; i < M; i++ {
+		msg[rand.Intn(M)] = nil
+	}
+
+	result, err = DecodeMessage(msg)
+	if err != nil {
+		t.Errorf("Failed to decode message: %s\n", err)
+	}
+
+	if !bytes.Equal(din[:n], result) {
+		t.Errorf("Decoded message is not equal to original\n")
+	}
+
+	// out of order and corrupted
+	rand.Read(din)
+	msg, n = s.MakeMessage(din)
+	if n != K*PktSize {
+		t.Errorf("Didn't use maximum data. Expected: %d, Actual: %d\n", K*PktSize, n)
+	}
+
+	for i := 0; i < M; i++ {
+		shard := rand.Intn(K + M)
+		b := rand.Intn(len(msg[shard]))
+		msg[shard][b] = msg[shard][b] ^ 0xff
+	}
+
+	for i := 0; i < K+M; i++ {
+		shard := rand.Intn(K + M)
+		msg[i], msg[shard] = msg[shard], msg[i]
+	}
+
+	result, err = DecodeMessage(msg)
+	if err != nil {
+		t.Errorf("Failed to decode message: %s\n", err)
+	}
+
+	if !bytes.Equal(din[:n], result) {
+		t.Errorf("Decoded message is not equal to original\n")
 	}
 
 }
