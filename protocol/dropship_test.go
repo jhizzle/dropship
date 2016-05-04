@@ -450,7 +450,6 @@ func TestMessageToPacketAndBack(t *testing.T) {
 		rand.Read(buf)
 		original := make([]byte, test.msgSize)
 		copy(original, buf)
-		fmt.Printf("Original Data: % x\n", original[:Min(test.k+test.shardSize, test.msgSize)])
 
 		m, _ := DataToMessage(buf, test.id, test.k, test.m, test.shardSize)
 		packets, err := MessageToPackets(m)
@@ -476,17 +475,6 @@ func TestMessageToPacketAndBack(t *testing.T) {
 			}
 		}
 
-		if i == 13 {
-			for i := range packets {
-
-				if packets[i] == nil {
-					fmt.Printf("Before: pkt %2d, nil\n", i)
-				} else {
-					fmt.Printf("Before: pkt %2d, seq: %d, % x\n", i, packets[i].Seq, packets[i].Data)
-				}
-			}
-		}
-
 		// shuffle
 		for i := 0; i < test.shuffle; i++ {
 			x := rand.Intn(len(packets))
@@ -501,17 +489,6 @@ func TestMessageToPacketAndBack(t *testing.T) {
 			continue
 		}
 
-		if i == 13 {
-			for i := range m.Shards {
-
-				if m.Shards[i] == nil {
-					fmt.Printf("After pkt %2d, nil\n", i)
-				} else {
-					fmt.Printf("After pkt %2d, % x\n", i, m.Shards[i])
-				}
-			}
-		}
-
 		if resultMessage == nil {
 			continue
 		}
@@ -522,7 +499,6 @@ func TestMessageToPacketAndBack(t *testing.T) {
 		}
 
 		if !bytes.Equal(original[:m.Size], result) {
-			fmt.Printf("%v\n%v\n", original[:m.Size], result)
 			t.Errorf("Test %3d: DataFromMessage result data not equal to input data. Expected length: %d, actual: %d\n", i, m.Size, len(result))
 		}
 
