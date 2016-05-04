@@ -503,5 +503,127 @@ func TestMessageToPacketAndBack(t *testing.T) {
 		}
 
 	}
+}
+
+func TestPacketWirePacket(t *testing.T) {
+	testVectors := []struct {
+		id        int
+		k         int
+		m         int
+		shardSize int
+		msgSize   int
+		encErr    error
+		corrupt   int
+		shuffle   int
+		decErr    error
+	}{
+		{0, 0, 0, 0, 0, ArgumentError, 0, 0, nil},
+		{1, 5, 5, 10, 49, nil, 0, 0, nil},
+		{2, 5, 5, 10, 50, nil, 0, 0, nil},
+		{3, 5, 5, 10, 51, nil, 0, 0, nil},
+		{4, 1, 1, 1, 1, nil, 0, 0, nil},
+		{5, 200, 55, 1000, 50000, nil, 0, 0, nil},
+		{6, 200, 55, 1000, 500000, nil, 0, 0, nil},
+		{7, 20, 5, 10, 50000, nil, 4, 0, nil},
+		{8, 20, 5, 10, 50000, nil, 5, 0, nil},
+		{9, 20, 5, 10, 50000, nil, 6, 0, reedsolomon.ErrTooFewShards},
+		{10, 20, 5, 10, 50000, nil, 4, 1, nil},
+		{11, 20, 5, 10, 50000, nil, 5, 5, nil},
+		{12, 20, 5, 10, 50000, nil, 6, 10, reedsolomon.ErrTooFewShards},
+		{13, 20, 5, 10, 5000, nil, 5, 10, nil},
+	}
+
+	for i, test := range testVectors {
+		buf := make([]byte, test.msgSize)
+		rand.Read(buf)
+		original := make([]byte, test.msgSize)
+		copy(original, buf)
+
+		messageIn, err := DataToMessage(buf, test.id, test.k, test.m, test.shardSize)
+		if err != nil {
+			t.Errorf("Test %3d: Unexpected error from DataToMessage\n", i)
+			continue
+		}
+		packets, err := MessageToPackets(messageIn)
+		if err != nil {
+			t.Errorf("Test %3d: Unexpected error from MessageToPackets\n", i)
+			continue
+		}
+
+		wire := make([][]byte, test.K+test.M)
+		for i, p := range packets {
+			write[i], err = PacketToWire(p)
+			if err != nil {
+				t.Errorf("Test %3d: Unexpected error from PacketToWire\n", i)
+			}
+		}
+
+		// corrupt packets
+		for i := 0; i < Min(test.corrupt, test.k+test.m); i++ {
+			packetToCorrupt := rand.Intn(len(wire))
+			byteToCorrupt := rand.Intn(len(wire[packetToCorrupt]))
+		}
+
+		// TODO
+	}
+
+	//		// shuffle
+	//		for i := 0; i < test.shuffle; i++ {
+	//			x := rand.Intn(len(packets))
+	//			y := rand.Intn(len(packets))
+	//
+	//			packets[x], packets[y] = packets[y], packets[x]
+	//		}
+	//
+	//		resultMessage, err := MessageFromPackets(packets)
+	//		if err != test.decErr {
+	//			t.Errorf("Test %3d: MessageFromPackets expected error: %v, actual: %v\n", i, test.decErr, err)
+	//			continue
+	//		}
+	//
+	//		if resultMessage == nil {
+	//			continue
+	//		}
+	//
+	//		result, err := DataFromMessage(resultMessage)
+	//		if err != nil {
+	//			t.Errorf("Test %3d: failed to get DataFromMessage\n", i)
+	//		}
+	//
+	//		if !bytes.Equal(original[:m.Size], result) {
+	//			t.Errorf("Test %3d: DataFromMessage result data not equal to input data. Expected length: %d, actual: %d\n", i, m.Size, len(result))
+	//		}
+	//
+	//	}
+	//	p := &Packet{
+	//		uint32(rand.Int()),
+	//		uint32(rand.Int()),
+	//		uint32(rand.Int()),
+	//		uint32(rand.Int()),
+	//		uint32(rand.Int()),
+	//		make([]byte, rand.Intn(PktSize)),
+	//	}
+	//	rand.Read(p.Data)
+	//
+	//	data, err := PacketToWire(p)
+	//	if err != nil {
+	//		t.Errorf("Could not convert Packet to wire data: %s\n", err)
+	//	}
+	//
+	//	result, err := WireToPacket(data)
+	//	if err != nil {
+	//		t.Fatalf("Could not convert wire data to Packet: %s\n", err)
+	//	}
+	//
+	//	if !reflect.DeepEqual(p, result) {
+	//		t.Errorf("Packets are not the same!\n")
+	//	}
+	//
+	//	data[rand.Intn(len(data))] = data[rand.Intn(len(data))] ^ 0xff
+	//
+	//	result, err = WireToPacket(data)
+	//	if err == nil {
+	//		t.Fatalf("Packet converted when should not have\n")
+	//	}
 
 }

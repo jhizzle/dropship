@@ -332,6 +332,8 @@ type Message struct {
 	enc       reedsolomon.Encoder
 }
 
+// DataToMessages takes data, a message id, and parameters describing how it
+// should be encoded and returns a Message.
 func DataToMessage(data []byte, id, k, m, shardSize int) (*Message, error) {
 	if id <= 0 || k <= 0 || m <= 0 || shardSize <= 0 {
 		return nil, ArgumentError
@@ -369,6 +371,7 @@ func DataToMessage(data []byte, id, k, m, shardSize int) (*Message, error) {
 	return msg, nil
 }
 
+// DataFromMessage takes a Message and returns the data from the Message.
 func DataFromMessage(m *Message) ([]byte, error) {
 	var err error
 
@@ -386,6 +389,8 @@ func DataFromMessage(m *Message) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// MessageToPackets converts a Message into a group of Packets that represent
+// the Message.
 func MessageToPackets(m *Message) ([]*Packet, error) {
 	if m == nil {
 		return nil, ArgumentError
@@ -408,6 +413,8 @@ func MessageToPackets(m *Message) ([]*Packet, error) {
 	return packets, nil
 }
 
+// MessageFromPackets converts a group of packets (all of the same message ID)
+// and turns it into a Message.
 func MessageFromPackets(packets []*Packet) (*Message, error) {
 	var err error
 
@@ -452,4 +459,31 @@ func MessageFromPackets(packets []*Packet) (*Message, error) {
 	}
 
 	return m, nil
+}
+
+// PacketToWire converts a Packet into the
+func PacketToWire(p *Packet) ([]byte, error) {
+	data, err := proto.Marshal(p)
+	if err != nil {
+		return nil, err
+	}
+
+	data = AppendHash(data)
+	return data, nil
+}
+
+func PacketFromWire(data []byte) (*Packet, error) {
+	data, valid := ValidateStripHash(data)
+	if !valid {
+		return nil, ErrCorrupt
+	}
+
+	p := new(Packet)
+	err := proto.Unmarshal(data, p)
+	if err != nil {
+		return nil, err
+	}
+
+	return p, nil
+
 }
