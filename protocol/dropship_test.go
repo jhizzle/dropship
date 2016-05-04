@@ -426,23 +426,31 @@ func TestMessageToPacketAndBack(t *testing.T) {
 		msgSize   int
 		encErr    error
 		dropped   int
+		shuffle   int
 		decErr    error
 	}{
-		{0, 0, 0, 0, 0, ArgumentError, 0, nil},
-		{1, 5, 5, 10, 49, nil, 0, nil},
-		{2, 5, 5, 10, 50, nil, 0, nil},
-		{3, 5, 5, 10, 51, nil, 0, nil},
-		{4, 1, 1, 1, 1, nil, 0, nil},
-		{5, 200, 55, 1000, 50000, nil, 0, nil},
-		{6, 200, 55, 1000, 500000, nil, 0, nil},
-		{7, 20, 5, 10, 50000, nil, 4, nil},
-		{8, 20, 5, 10, 50000, nil, 5, nil},
-		{9, 20, 5, 10, 50000, nil, 6, reedsolomon.ErrTooFewShards},
+		{0, 0, 0, 0, 0, ArgumentError, 0, 0, nil},
+		{1, 5, 5, 10, 49, nil, 0, 0, nil},
+		{2, 5, 5, 10, 50, nil, 0, 0, nil},
+		{3, 5, 5, 10, 51, nil, 0, 0, nil},
+		{4, 1, 1, 1, 1, nil, 0, 0, nil},
+		{5, 200, 55, 1000, 50000, nil, 0, 0, nil},
+		{6, 200, 55, 1000, 500000, nil, 0, 0, nil},
+		{7, 20, 5, 10, 50000, nil, 4, 0, nil},
+		{8, 20, 5, 10, 50000, nil, 5, 0, nil},
+		{9, 20, 5, 10, 50000, nil, 6, 0, reedsolomon.ErrTooFewShards},
+		{10, 20, 5, 10, 50000, nil, 4, 1, nil},
+		{11, 20, 5, 10, 50000, nil, 5, 5, nil},
+		{12, 20, 5, 10, 50000, nil, 6, 10, reedsolomon.ErrTooFewShards},
+		{13, 20, 5, 10, 5000, nil, 5, 10, nil},
 	}
 
 	for i, test := range testVectors {
 		buf := make([]byte, test.msgSize)
 		rand.Read(buf)
+		original := make([]byte, test.msgSize)
+		copy(original, buf)
+		fmt.Printf("Original Data: % x\n", original[:Min(test.k+test.shardSize, test.msgSize)])
 
 		m, _ := DataToMessage(buf, test.id, test.k, test.m, test.shardSize)
 		packets, err := MessageToPackets(m)
@@ -450,35 +458,74 @@ func TestMessageToPacketAndBack(t *testing.T) {
 			t.Errorf("Test %3d: MessageToPackets: Expected error: %v, actual: %v\n", i, test.encErr, err)
 			continue
 		}
-		_ = packets
 
-		//		// drop packets
-		//		for i := 0; i < Min(test.dropped, test.k+test.m); i++ {
-		//
-		//			for {
-		//				shard := rand.Intn(len(m.Shards))
-		//				if m.Shards[shard] == nil {
-		//					continue
-		//				}
-		//				m.Shards[shard] = nil
-		//				break
-		//			}
-		//		}
-		//
-		//		result, err := DataFromMessage(m)
-		//		if err != test.decErr {
-		//			t.Errorf("Test: %3d, DataFromMessage Expected error: %v, actual: %v\n", i, test.encErr, err)
-		//			continue
-		//		}
-		//
-		//		if err != nil {
-		//			continue
-		//		}
-		//
-		//		if !bytes.Equal(buf[:m.Size], result) {
-		//			t.Errorf("Test: %3d, DataFromMessage result data not equal to input data. Expected length: %d, actual: %d\n", i, m.Size, len(result))
-		//		}
-		//
+		if packets == nil {
+			continue
+		}
+
+		// drop packets
+		for i := 0; i < Min(test.dropped, test.k+test.m); i++ {
+
+			for {
+				shard := rand.Intn(len(m.Shards))
+				if packets[shard] == nil {
+					continue
+				}
+				packets[shard] = nil
+				break
+			}
+		}
+
+		if i == 13 {
+			for i := range packets {
+
+				if packets[i] == nil {
+					fmt.Printf("Before: pkt %2d, nil\n", i)
+				} else {
+					fmt.Printf("Before: pkt %2d, seq: %d, % x\n", i, packets[i].Seq, packets[i].Data)
+				}
+			}
+		}
+
+		// shuffle
+		for i := 0; i < test.shuffle; i++ {
+			x := rand.Intn(len(packets))
+			y := rand.Intn(len(packets))
+
+			packets[x], packets[y] = packets[y], packets[x]
+		}
+
+		resultMessage, err := MessageFromPackets(packets)
+		if err != test.decErr {
+			t.Errorf("Test %3d: MessageFromPackets expected error: %v, actual: %v\n", i, test.decErr, err)
+			continue
+		}
+
+		if i == 13 {
+			for i := range m.Shards {
+
+				if m.Shards[i] == nil {
+					fmt.Printf("After pkt %2d, nil\n", i)
+				} else {
+					fmt.Printf("After pkt %2d, % x\n", i, m.Shards[i])
+				}
+			}
+		}
+
+		if resultMessage == nil {
+			continue
+		}
+
+		result, err := DataFromMessage(resultMessage)
+		if err != nil {
+			t.Errorf("Test %3d: failed to get DataFromMessage\n", i)
+		}
+
+		if !bytes.Equal(original[:m.Size], result) {
+			fmt.Printf("%v\n%v\n", original[:m.Size], result)
+			t.Errorf("Test %3d: DataFromMessage result data not equal to input data. Expected length: %d, actual: %d\n", i, m.Size, len(result))
+		}
+
 	}
 
 }

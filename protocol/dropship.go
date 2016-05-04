@@ -372,9 +372,15 @@ func DataToMessage(data []byte, id, k, m, shardSize int) (*Message, error) {
 func DataFromMessage(m *Message) ([]byte, error) {
 	var err error
 
+	for i, b := range m.Shards {
+		fmt.Printf("Before Reconstructed pkt %2d, % x\n", i, b)
+	}
 	err = m.enc.Reconstruct(m.Shards)
 	if err != nil {
 		return nil, err
+	}
+	for i, b := range m.Shards {
+		fmt.Printf("After  Reconstructed pkt %2d, % x\n", i, b)
 	}
 
 	buf := new(bytes.Buffer)
