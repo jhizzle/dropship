@@ -64,6 +64,8 @@ func Dial(network, address string) (*Sender, error) {
 	var err error
 	s := &Sender{}
 
+	s.count = 1
+
 	s.remote, err = net.ResolveUDPAddr(network, address)
 	if err != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: err}
@@ -88,17 +90,31 @@ func (s *Sender) Write(b []byte) (int, error) {
 
 	for remaining := len(b); remaining > 0; {
 
-		msg, n := s.MakeMessage(b[total:])
-		remaining -= n
+		m, err := DataToMessage(b, int(s.count), K, M, PktSize)
+		if err != nil {
+			return 0, err
+		}
+		remaining -= m.Size
+		s.count++
 
-		for _, data := range msg {
-			_, err := s.conn.Write(data)
+		packets, err := MessageToPackets(m)
+		if err != nil {
+			return 0, err
+		}
+
+		for _, p := range packets {
+			wire, err := PacketToWire(p)
 			if err != nil {
 				return total, err
 			}
-		}
-		total += n
 
+			_, err = s.conn.Write(wire)
+			if err != nil {
+				return total, err
+			}
+
+		}
+		total += m.Size
 	}
 
 	return total, nil

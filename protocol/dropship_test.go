@@ -48,15 +48,18 @@ func TestSenderWrite(t *testing.T) {
 	s, err := Dial("udp", "127.0.0.1:1712")
 	if err != nil {
 		t.Errorf("Dial Failed: %v\n", err)
+		return
 	}
 
 	laddr, err := net.ResolveUDPAddr("udp", ":1712")
 	if err != nil {
 		t.Errorf("ResolveUDPAddr failed to resolve address: %s\n", err)
+		return
 	}
 	r, err := net.ListenUDP("udp", laddr)
 	if err != nil {
 		t.Errorf("Failed to listen on udp: %s\n", err)
+		return
 	}
 
 	msg := make([]byte, 2^20)
@@ -64,6 +67,7 @@ func TestSenderWrite(t *testing.T) {
 	n, err := s.Write(msg)
 	if n != len(msg) || err != nil {
 		t.Errorf("Write:: Expected: (%d, nil), Actual: (%d, %v)\n", len(msg), n, err)
+		return
 	}
 
 	buf := make([]byte, 5000)
@@ -81,10 +85,12 @@ func TestSenderWrite(t *testing.T) {
 	result, err := DecodeMessage(shards)
 	if err != nil {
 		t.Errorf("Failed to DecodeMessage: %s\n", err)
+		return
 	}
 
 	if !bytes.Equal(msg, result) {
 		t.Errorf("Decoded message does not equal sent message\n")
+		return
 	}
 }
 
@@ -227,8 +233,8 @@ func TestMakeMessage(t *testing.T) {
 	}
 
 	for i, p := range packets {
-		if p.Id != 0 {
-			t.Errorf("Packet %d doesn't have correct ID. Expected: %d, Actual: %d\n", i, 0, p.Id)
+		if p.Id != 1 {
+			t.Errorf("Packet %d doesn't have correct ID. Expected: %d, Actual: %d\n", i, 1, p.Id)
 		}
 		if p.Seq != uint32(i) {
 			t.Errorf("Packet %d doesn't have correct sequence. Expected: %d, Actual: %d\n", i, i, p.Seq)
