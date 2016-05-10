@@ -41,6 +41,110 @@ func main() {
 	fmt.Printf("RemoteAddr: %s\n", s.RemoteAddr())
 }
 
+type Listener struct {
+	laddr *net.UDPAddr
+	conn  *net.UDPConn
+	close chan bool
+}
+
+func Listen(network, laddr string) (*Listener, error) {
+	l := &Listener{}
+	switch network {
+	case "udp":
+	default:
+		return nil, &net.OpError{
+			Op:     "listen",
+			Net:    network,
+			Source: nil,
+			Addr:   nil,
+			Err:    net.UnknownNetworkError(network),
+		}
+	}
+
+	var err error
+
+	l.laddr, err = net.ResolveUDPAddr(network, laddr)
+	if err != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: err}
+	}
+
+	l.conn, err = net.ListenUDP(network, l.laddr)
+	if err != nil {
+		return nil, err
+	}
+
+	l.close = make(chan bool)
+
+	go getPackets(l)
+	// accepts and routes packets
+
+	return l, nil
+}
+
+func getPackets(l *Listener) {
+	// read packet
+	// check id
+	// drop if less than min
+	// add to message group otherwise
+	minId := 1
+	data := make([]byte, 1600)
+	packetStaging := make(map[int][]*Packet)
+	for {
+		select {
+		case <-l.close:
+			return
+		default:
+		}
+
+		n, addr, err := l.conn.ReadFromUDP(data)
+		if err != nil {
+			return
+		}
+
+		p, _ := PacketFromWire(data[:n])
+		if p != nil {
+			if p.Id < minId {
+				continue
+			}
+
+			packetStaging[p.Id] = append(packetStaging[p.Id], p)
+			if len(packetStaging[p.ID]) >= p.K {
+				m, err := MessageFromPackets(packetStaging[p.Id])
+				if err != nil {
+					return
+				}
+				receivedData, err := DataFromMessage(m)
+				if err != nil {
+					return
+				}
+				l.buf.Write(receivedData)
+				delete(packetStaging[p.Id])
+				minId = p.Id + 1
+			}
+		}
+
+		if n > 0 {
+			fmt.Printf("Read %d bytes from %s\n", n, addr)
+		}
+	}
+}
+
+func (l *Listener) Accept() (net.Conn, error) {
+	// store up packets
+	// write them to whoever accepts
+	// the first time accept is called, it sends a goroutine to handle all packets
+	// or, the "Listen" function can start listening and storing up packets for the accept.
+	return nil, nil
+}
+
+func (l *Listener) Close() error {
+	return l.conn.Close()
+}
+
+func (l *Listener) Addr() net.Addr {
+	return nil
+}
+
 type Sender struct {
 	remote *net.UDPAddr
 	conn   net.Conn
